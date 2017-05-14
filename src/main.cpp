@@ -51,7 +51,7 @@ int main() {
 		cout << "Couldnt open camera stream." << endl;
 		return 1;
 	}
-	cap.set(CV_CAP_PROP_FORMAT, CV_8UC4); // we want RGBA not BGR24
+	// cap.set(CV_CAP_PROP_FORMAT, CV_8UC4); // we want RGBA not BGR24 but this doesn't work
 	int w = cap.get(CV_CAP_PROP_FRAME_WIDTH);
 	int h = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
 
@@ -60,8 +60,9 @@ int main() {
 
 	// this is basically our rendering surface we're going to point a camera at
 	// for our texture video texture.
+	// note the ST coords are upside-down because lol opengl
 	GLfloat vbuffer[] = {
-		// vertex               // UV
+		// vertex               // ST
 		-0.88888f , -0.5f , 0 , tW, tH, // lower right tri
 		0.88888f  , -0.5f , 0 , 0.0f , tH,
 		0.88888f  , 0.5f  , 0 , 0.0f , 0.0f ,
@@ -93,11 +94,9 @@ int main() {
 	GLuint buffer;
 	glGenBuffers(1, &buffer);
 
-
-	GLuint VBO;
+	// geometry and texture coordinates
+	GLuint VBO, VAO;
 	glGenBuffers(1, &VBO);
-
-	GLuint VAO;
 	glGenVertexArrays(1, &VAO);
 
 	glBindVertexArray(VAO);
@@ -119,6 +118,9 @@ int main() {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindTexture(GL_TEXTURE_2D, 0);
+
+	// out color conversion buffer for BGR24->RGBA
+	GLubyte *convertBuffer = new GLubyte[w*h*4];
 
 	while (running) {
 		// input handle
@@ -160,7 +162,9 @@ int main() {
 		GLubyte *ptr = (GLubyte*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 
 		if (ptr) {
-			memcpy(ptr, frame.ptr(), w * h * 3);
+			// convert from BGR24 to RGBA
+			Mat properRGBA(frame.size(), CV_8UC4, ptr);
+			cv::cvtColor(frame, properRGBA, CV_BGR2RGBA, 4);
 			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 			glGenerateMipmap(GL_TEXTURE_2D);
 		}
