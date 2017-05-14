@@ -45,18 +45,6 @@ int main() {
 
 	SDL_GLContext context = SDL_GL_CreateContext(win);
 
-	// this is basically our rendering surface we're going to point a camera at
-	// for our texture video texture.
-	GLfloat vbuffer[] = {
-		// vertex               // UV
-		-0.88888f , -0.5f , 0 , 0.0f , 0.0f , // lower right tri
-		0.88888f  , -0.5f , 0 , 1.0f , 0.0f ,
-		0.88888f  , 0.5f  , 0 , 1.0f , 1.0f ,
-		0.88888f  , 0.5f  , 0 , 1.0f , 1.0f , // upper left tri
-		-0.88888f , 0.5f  , 0 , 0.0f , 1.0f ,
-		-0.88888f , -0.5f , 0 , 0.0f , 0.0f ,
-	};
-
 	// Init webcam
 	VideoCapture cap(0); // first usb cam?
 	if (!cap.isOpened()) {
@@ -66,6 +54,22 @@ int main() {
 	cap.set(CV_CAP_PROP_FORMAT, CV_8UC4); // we want RGBA not BGR24
 	int w = cap.get(CV_CAP_PROP_FRAME_WIDTH);
 	int h = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
+
+	const GLfloat tW = w/2048.0;
+	const GLfloat tH = h/2048.0;
+
+	// this is basically our rendering surface we're going to point a camera at
+	// for our texture video texture.
+	GLfloat vbuffer[] = {
+		// vertex               // UV
+		-0.88888f , -0.5f , 0 , tW, tH, // lower right tri
+		0.88888f  , -0.5f , 0 , 0.0f , tH,
+		0.88888f  , 0.5f  , 0 , 0.0f , 0.0f ,
+		0.88888f  , 0.5f  , 0 , 0.0f , 0.0f , // upper left tri
+		-0.88888f , 0.5f  , 0 , tW , 0.0f ,
+		-0.88888f , -0.5f , 0 , tW , tH,
+	};
+
 
 	Shader prog("shader.vert", "shader.frag");
 
@@ -131,7 +135,7 @@ int main() {
 		// get stream from OPENCV
 		cap >> frame; // this is by default a BGR24 stream
 
-		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
 #define CHECKERROR() do {if (GLenum err = glGetError()) { cerr << "ERROR: " << err << " at line " << __LINE__ << endl; }} while (0)
@@ -156,7 +160,7 @@ int main() {
 		GLubyte *ptr = (GLubyte*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 
 		if (ptr) {
-			memcpy(ptr, frame.ptr(), w * h * 4);
+			memcpy(ptr, frame.ptr(), w * h * 3);
 			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 			glGenerateMipmap(GL_TEXTURE_2D);
 		}
