@@ -26,6 +26,52 @@ using namespace glm;
 
 typedef unsigned char U8;
 
+// must be 3:2
+#define WIN_WIDTH 1920
+#define WIN_HEIGHT 1280
+#define VIEWPORT_SZ 640
+
+float cameraFOVRadians = 3.1415926536f * 0.5; // 90deg to start
+float cameraLensRadiusPx = 430;
+
+void DrawVideoHemisphere(const HemisphereGeometry& hemisphere, const Shader& prog) {
+	// scale and rotate model
+	glm::mat4 modelmat = glm::scale(glm::mat4(1.0f), glm::vec3(50.0));
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat));
+	// set UV coords
+	vec2 uvcenter(0.70947265, 0.22705078);
+	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter));
+	// draw
+	hemisphere.Draw();
+
+	// REAR CAMERA
+	// rotate modelmat 180 deg
+	glm::mat4 modelmat2 = glm::rotate(glm::rotate(modelmat, 3.1415926536f, glm::vec3(0, 1, 0)), 3.1415926536f, glm::vec3(1, 0, 0));
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat2));
+	// update uv center
+	vec2 uvcenter2(0.2329101, 0.22705078);
+	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter2));
+	// draw again
+	hemisphere.Draw();
+}
+
+void DrawView(const glm::vec3& direction, const glm::vec3& up, int x, int y, const HemisphereGeometry& hemisphere, const Shader& prog) {
+	glViewport(x * VIEWPORT_SZ, y * VIEWPORT_SZ, VIEWPORT_SZ, VIEWPORT_SZ);
+
+	vec3 camera(0, 0, 0);
+	vec3 target = glm::normalize(direction);
+	mat4 view = glm::lookAt(camera, target, up);
+
+	const GLfloat pi = 3.141596;
+	mat4 projection = glm::perspective(cameraFOVRadians, 1.0f, 90.0f, 0.1f);
+
+	// set uniforms (projection and view matrices)
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uProjectionMat"), 1, GL_FALSE, glm::value_ptr(projection));
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uViewMat"), 1, GL_FALSE, glm::value_ptr(view));
+
+	DrawVideoHemisphere(hemisphere, prog);
+}
+
 int main() {
 	SDL_Init(SDL_INIT_EVERYTHING);
 
@@ -36,7 +82,7 @@ int main() {
 	SDL_Window *win = SDL_CreateWindow(
 		"SphereStream",
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		1920, 1080,
+		WIN_WIDTH, WIN_HEIGHT,
 		SDL_WINDOW_OPENGL
 	);
 	if (!win) {
@@ -63,9 +109,6 @@ int main() {
 
 	// set up perspective view
 	// 1/2 pi = 90deg
-	const GLfloat pi = 3.141596;
-	mat4 projection = glm::perspective(pi / 2.0f, (GLfloat)w / h, 90.0f, 0.1f);
-
 	Mat frame;
 	cap >> frame;
 
@@ -97,13 +140,38 @@ int main() {
 
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 
+#define ONE_DEGREE 0.01745329252f
+
 	while (running) {
 		// input handle
 		SDL_Event e;
 		while (SDL_PollEvent(&e)) {
-			if (e.type == SDL_QUIT) {
-				running = false;
-				break;
+			switch (e.type) {
+				case SDL_QUIT:
+					running = false;
+					break;
+				case SDL_KEYDOWN:
+					bool caught = true;
+					switch (e.key.keysym.sym) {
+						case SDLK_w:
+							cameraLensRadiusPx += 1;
+							break;
+						case SDLK_s:
+							cameraLensRadiusPx -= 1;
+							break;
+						case SDLK_d:
+							cameraFOVRadians += ONE_DEGREE;
+							break;
+						case SDLK_a:
+							cameraFOVRadians -= ONE_DEGREE;
+							break;
+						default:
+							caught = false;
+							break;
+					}
+					if (caught) {
+						cout << "Lens radius " << cameraLensRadiusPx << " FOV " << cameraFOVRadians << endl;
+					}
 			}
 		}
 
@@ -122,33 +190,18 @@ int main() {
 		// set up camera
 
 		// update pitch/yaw
-		int mdx, mdy;
-		SDL_GetRelativeMouseState(&mdx, &mdy);
-		yaw += mdx * 0.25;
-		pitch += mdy * 0.25;
-		if (pitch > 89.0f) pitch = 89.0f;
-		if (pitch < -89.0f) pitch = -89.0f;
+		//int mdx, mdy;
+		//SDL_GetRelativeMouseState(&mdx, &mdy);
+		//yaw += mdx * 0.25;
+		//pitch += mdy * 0.25;
+		//if (pitch > 89.0f) pitch = 89.0f;
+		//if (pitch < -89.0f) pitch = -89.0f;
 
-		vec3 camera(0, 0, 0);
-		vec3 target = glm::normalize(vec3(
-			cos(glm::radians(pitch)) * cos(glm::radians(yaw)),
-			sin(glm::radians(pitch)),
-			cos(glm::radians(pitch)) * sin(glm::radians(yaw))
-		));
-		vec3 up(0, 1, 0);
-		mat4 view = glm::lookAt(camera, target, up);
 
-		// TODO: capture mouse input and rotate camera pitch/yaw
-
-		// set uniforms (projection and view matrices)
-		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uViewMat"), 1, GL_FALSE, glm::value_ptr(view));
-		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uProjectionMat"), 1, GL_FALSE, glm::value_ptr(projection));
 		glUniform1i(glGetUniformLocation(prog.Program, "streamingTexture"), 0);
-
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, videoTexture);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
-
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
 		// prepare to buffer the pixel data into the texture
@@ -167,28 +220,14 @@ int main() {
 		// draw call here
 
 		// eye radius
-		glUniform1f(glGetUniformLocation(prog.Program, "uLensRadius"), 0.2099609);
+		glUniform1f(glGetUniformLocation(prog.Program, "uLensRadius"), cameraLensRadiusPx / 2048.0); // TODO: extract constant to a setting
 
-		// FRONT CAMERA
-
-		// scale and rotate model
-		glm::mat4 modelmat = glm::scale(glm::mat4(1.0f), glm::vec3(5.0));
-		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat));
-		// set UV coords
-		vec2 uvcenter(0.70947265, 0.22705078);
-		glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter));
-		// draw
-		hemisphere.Draw();
-
-		// REAR CAMERA
-		// rotate modelmat 180 deg
-		glm::mat4 modelmat2 = glm::rotate(glm::rotate(modelmat, 3.1415926536f, glm::vec3(0, 1, 0)), 3.1415926536f, glm::vec3(1, 0, 0));
-		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat2));
-		// update uv center
-		vec2 uvcenter2(0.2329101, 0.22705078);
-		glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter2));
-		// draw again
-		hemisphere.Draw();
+		DrawView(vec3(1, 0, 0), vec3(0,1,0), 0, 0, hemisphere, prog); // right
+		DrawView(vec3(-1, 0, 0), vec3(0,1,0), 1, 0, hemisphere, prog); // left
+		DrawView(vec3(0, 1, 0), vec3(0,0,-1), 2, 0, hemisphere, prog); // up
+		DrawView(vec3(0, -1, 0), vec3(0,0,1), 0, 1, hemisphere, prog); // down
+		DrawView(vec3(0, 0, 1), vec3(0,1,0), 1, 1, hemisphere, prog); // front
+		DrawView(vec3(0, 0, -1), vec3(0,1,0), 2, 1, hemisphere, prog); // back
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_2D, 0);

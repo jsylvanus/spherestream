@@ -11,7 +11,7 @@ HemisphereGeometry::HemisphereGeometry(float rad, int circleSeg, int heightSeg, 
 	createVAO();
 }
 
-void HemisphereGeometry::Draw() {
+void HemisphereGeometry::Draw() const {
 	glBindVertexArray(vao);
 	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);

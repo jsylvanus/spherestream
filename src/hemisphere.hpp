@@ -38,7 +38,7 @@ class HemisphereGeometry {
 	void createVAO();
 public:
 	HemisphereGeometry(float rad, int circleSeg, int heightSeg, float ap);
-	void Draw();
+	void Draw() const;
 };
 
 #endif
