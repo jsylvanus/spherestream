@@ -31,28 +31,69 @@ typedef unsigned char U8;
 #define WIN_HEIGHT 1280
 #define VIEWPORT_SZ 640
 
+#define ONE_DEGREE 0.01745329252f
+#define ONE_PIXEL 0.00048828125f
+
 float cameraFOVRadians = 3.1415926536f * 0.5; // 90deg to start
-float cameraLensRadiusPx = 430;
+// glm::vec2 cameraLens(0.2099609375f, 0.2099609375f);
+// glm::vec2 frontLensCenter(0.70947265, 0.22705078);
+// glm::vec2 rearLensCenter(0.2329101, 0.22705078);
+glm::vec2 cameraLens(0.208496f, 0.208984f);
+glm::vec2 frontLensCenter(0.701172f, 0.233887f);
+glm::vec2 rearLensCenter(0.23584f, 0.233887f);
+
+GLfloat g_pitch = 0;
+GLfloat g_yaw = 0;
+bool cubemap = true;
 
 void DrawVideoHemisphere(const HemisphereGeometry& hemisphere, const Shader& prog) {
 	// scale and rotate model
 	glm::mat4 modelmat = glm::scale(glm::mat4(1.0f), glm::vec3(50.0));
 	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat));
 	// set UV coords
-	vec2 uvcenter(0.70947265, 0.22705078);
-	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter));
+	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(frontLensCenter));
 	// draw
 	hemisphere.Draw();
 
 	// REAR CAMERA
-	// rotate modelmat 180 deg
+	// flip the hemisphere around because what
 	glm::mat4 modelmat2 = glm::rotate(glm::rotate(modelmat, 3.1415926536f, glm::vec3(0, 1, 0)), 3.1415926536f, glm::vec3(1, 0, 0));
 	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat2));
 	// update uv center
-	vec2 uvcenter2(0.2329101, 0.22705078);
-	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter2));
+	glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(rearLensCenter));
 	// draw again
 	hemisphere.Draw();
+}
+
+void DrawFullView(const HemisphereGeometry& hemisphere, const Shader& prog) {
+	// update g_pitch/g_yaw
+	int mdx, mdy;
+	SDL_GetRelativeMouseState(&mdx, &mdy);
+	g_yaw -= mdx * 0.25;
+	g_pitch -= mdy * 0.25;
+	if (g_pitch > 89.0f) g_pitch = 89.0f;
+	if (g_pitch < -89.0f) g_pitch = -89.0f;
+
+	glViewport(0, 0, WIN_WIDTH, WIN_HEIGHT);
+
+	vec3 camera(0, 0, 0);
+	vec3 direction(
+		cos(glm::radians(g_pitch)) * cos(glm::radians(g_yaw)),
+		sin(glm::radians(g_pitch)),
+		cos(glm::radians(g_pitch)) * sin(-glm::radians(g_yaw))
+	);
+	vec3 up(0,1,0);
+	vec3 target = glm::normalize(direction);
+	mat4 view = glm::lookAt(camera, target, up);
+
+	const GLfloat pi = 3.141596;
+	mat4 projection = glm::perspective(pi * 0.45f, (float)WIN_WIDTH / (float)WIN_HEIGHT, 90.0f, 0.1f);
+
+	// set uniforms (projection and view matrices)
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uProjectionMat"), 1, GL_FALSE, glm::value_ptr(projection));
+	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uViewMat"), 1, GL_FALSE, glm::value_ptr(view));
+
+	DrawVideoHemisphere(hemisphere, prog);
 }
 
 void DrawView(const glm::vec3& direction, const glm::vec3& up, int x, int y, const HemisphereGeometry& hemisphere, const Shader& prog) {
@@ -70,6 +111,69 @@ void DrawView(const glm::vec3& direction, const glm::vec3& up, int x, int y, con
 	glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uViewMat"), 1, GL_FALSE, glm::value_ptr(view));
 
 	DrawVideoHemisphere(hemisphere, prog);
+}
+
+void handleKeyDown(const SDL_Keycode& sym) {
+	bool caught = true;
+	switch (sym) {
+
+		// WASD changes lens shape
+		case SDLK_w:
+			cameraLens.y += ONE_PIXEL;
+			break;
+		case SDLK_s:
+			cameraLens.y -= ONE_PIXEL;
+			break;
+		case SDLK_d:
+			cameraLens.x += ONE_PIXEL;
+			break;
+		case SDLK_a:
+			cameraLens.x -= ONE_PIXEL;
+			break;
+
+		// TFGH moves read lens (left one)
+		case SDLK_t:
+			rearLensCenter.y += ONE_PIXEL;
+			break;
+		case SDLK_g:
+			rearLensCenter.y -= ONE_PIXEL;
+			break;
+		case SDLK_h:
+			rearLensCenter.x += ONE_PIXEL;
+			break;
+		case SDLK_f:
+			rearLensCenter.x -= ONE_PIXEL;
+			break;
+
+		// IJKL moves front lens (right one)
+		case SDLK_i:
+			frontLensCenter.y += ONE_PIXEL;
+			break;
+		case SDLK_k:
+			frontLensCenter.y -= ONE_PIXEL;
+			break;
+		case SDLK_l:
+			frontLensCenter.x += ONE_PIXEL;
+			break;
+		case SDLK_j:
+			frontLensCenter.x -= ONE_PIXEL;
+			break;
+
+		case SDLK_c:
+			cubemap = !cubemap; caught = false;
+			cout << "Cubemap toggled" << endl;
+			break;
+
+		default:
+			caught = false;
+			break;
+	}
+	if (caught) {
+		cout << "UV configuration updated:" << endl;
+		cout << "  Lens shape (" << cameraLens.x << ", " << cameraLens.y << ")" << endl;
+		cout << "  Front center (" << frontLensCenter.x << ", " << frontLensCenter.y << ")" << endl;
+		cout << "  Rear center (" << rearLensCenter.x << ", " << rearLensCenter.y << ")" << endl;
+	}
 }
 
 int main() {
@@ -135,12 +239,8 @@ int main() {
 	// out color conversion buffer for BGR24->RGBA
 	GLubyte *convertBuffer = new GLubyte[w*h*4];
 
-	GLfloat pitch = 0;
-	GLfloat yaw = 0;
-
 	SDL_SetRelativeMouseMode(SDL_TRUE);
 
-#define ONE_DEGREE 0.01745329252f
 
 	while (running) {
 		// input handle
@@ -151,27 +251,8 @@ int main() {
 					running = false;
 					break;
 				case SDL_KEYDOWN:
-					bool caught = true;
-					switch (e.key.keysym.sym) {
-						case SDLK_w:
-							cameraLensRadiusPx += 1;
-							break;
-						case SDLK_s:
-							cameraLensRadiusPx -= 1;
-							break;
-						case SDLK_d:
-							cameraFOVRadians += ONE_DEGREE;
-							break;
-						case SDLK_a:
-							cameraFOVRadians -= ONE_DEGREE;
-							break;
-						default:
-							caught = false;
-							break;
-					}
-					if (caught) {
-						cout << "Lens radius " << cameraLensRadiusPx << " FOV " << cameraFOVRadians << endl;
-					}
+					handleKeyDown(e.key.keysym.sym);
+					break;
 			}
 		}
 
@@ -186,16 +267,6 @@ int main() {
 #define CHECKERROR() do {if (GLenum err = glGetError()) { cerr << "ERROR: " << err << " at line " << __LINE__ << endl; }} while (0)
 
 		prog.Use();
-
-		// set up camera
-
-		// update pitch/yaw
-		//int mdx, mdy;
-		//SDL_GetRelativeMouseState(&mdx, &mdy);
-		//yaw += mdx * 0.25;
-		//pitch += mdy * 0.25;
-		//if (pitch > 89.0f) pitch = 89.0f;
-		//if (pitch < -89.0f) pitch = -89.0f;
 
 
 		glUniform1i(glGetUniformLocation(prog.Program, "streamingTexture"), 0);
@@ -220,14 +291,22 @@ int main() {
 		// draw call here
 
 		// eye radius
-		glUniform1f(glGetUniformLocation(prog.Program, "uLensRadius"), cameraLensRadiusPx / 2048.0); // TODO: extract constant to a setting
+		glUniform2fv(glGetUniformLocation(prog.Program, "uLensShape"), 1, glm::value_ptr(cameraLens)); // TODO: extract constant to a setting
 
-		DrawView(vec3(1, 0, 0), vec3(0,1,0), 0, 0, hemisphere, prog); // right
-		DrawView(vec3(-1, 0, 0), vec3(0,1,0), 1, 0, hemisphere, prog); // left
-		DrawView(vec3(0, 1, 0), vec3(0,0,-1), 2, 0, hemisphere, prog); // up
-		DrawView(vec3(0, -1, 0), vec3(0,0,1), 0, 1, hemisphere, prog); // down
-		DrawView(vec3(0, 0, 1), vec3(0,1,0), 1, 1, hemisphere, prog); // front
-		DrawView(vec3(0, 0, -1), vec3(0,1,0), 2, 1, hemisphere, prog); // back
+		if (cubemap) {
+
+			DrawView(vec3(1, 0, 0), vec3(0,1,0), 0, 0, hemisphere, prog); // right
+			DrawView(vec3(-1, 0, 0), vec3(0,1,0), 1, 0, hemisphere, prog); // left
+			DrawView(vec3(0, 1, 0), vec3(0,0,-1), 2, 0, hemisphere, prog); // up
+			DrawView(vec3(0, -1, 0), vec3(0,0,1), 0, 1, hemisphere, prog); // down
+			DrawView(vec3(0, 0, 1), vec3(0,1,0), 1, 1, hemisphere, prog); // front
+			DrawView(vec3(0, 0, -1), vec3(0,1,0), 2, 1, hemisphere, prog); // back
+
+		} else {
+
+			DrawFullView(hemisphere, prog);
+
+		}
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_2D, 0);
