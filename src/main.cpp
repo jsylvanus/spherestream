@@ -10,6 +10,7 @@
 #include <OpenGL/glext.h>
 #endif
 
+#include "hemisphere.hpp"
 #include "shader.hpp"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
@@ -58,32 +59,12 @@ int main() {
 	const GLfloat tW = w/2048.0;
 	const GLfloat tH = h/2048.0;
 
-	// this is basically our rendering surface we're going to point a camera at
-	// for our texture video texture.
-	// note the ST coords are upside-down because lol opengl
-	GLfloat vbuffer[] = {
-		// vertex               // ST
-		-0.88888f , -0.5f , 0 , tW, tH, // lower right tri
-		0.88888f  , -0.5f , 0 , 0.0f , tH,
-		0.88888f  , 0.5f  , 0 , 0.0f , 0.0f ,
-		0.88888f  , 0.5f  , 0 , 0.0f , 0.0f , // upper left tri
-		-0.88888f , 0.5f  , 0 , tW , 0.0f ,
-		-0.88888f , -0.5f , 0 , tW , tH,
-	};
-
-
 	Shader prog("shader.vert", "shader.frag");
-
-	// set up camera
-	vec3 camera(0, 0, -0.7);
-	vec3 origin(0,0,0);
-	vec3 up(0, 1, 0);
-	mat4 view = glm::lookAt(camera, origin, up);
 
 	// set up perspective view
 	// 1/2 pi = 90deg
 	const GLfloat pi = 3.141596;
-	mat4 projection = glm::perspective(pi / 2.0f, (GLfloat)w / h, 50.0f, 0.1f);
+	mat4 projection = glm::perspective(pi / 2.0f, (GLfloat)w / h, 90.0f, 0.1f);
 
 	Mat frame;
 	cap >> frame;
@@ -95,32 +76,26 @@ int main() {
 	glGenBuffers(1, &buffer);
 
 	// geometry and texture coordinates
-	GLuint VBO, VAO;
-	glGenBuffers(1, &VBO);
-	glGenVertexArrays(1, &VAO);
-
-	glBindVertexArray(VAO);
-		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vbuffer), vbuffer, GL_STATIC_DRAW);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)0);
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat)));
-		glEnableVertexAttribArray(1);
-	glBindVertexArray(0);
+	HemisphereGeometry hemisphere(5.0, 50, 20, 3.1415926536);
 
 	// create video texture
 	GLuint videoTexture;
 	glGenTextures(1, &videoTexture);
 	glBindTexture(GL_TEXTURE_2D, videoTexture);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2048, 2048, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	// out color conversion buffer for BGR24->RGBA
 	GLubyte *convertBuffer = new GLubyte[w*h*4];
+
+	GLfloat pitch = 0;
+	GLfloat yaw = 0;
+
+	SDL_SetRelativeMouseMode(SDL_TRUE);
 
 	while (running) {
 		// input handle
@@ -143,6 +118,27 @@ int main() {
 #define CHECKERROR() do {if (GLenum err = glGetError()) { cerr << "ERROR: " << err << " at line " << __LINE__ << endl; }} while (0)
 
 		prog.Use();
+
+		// set up camera
+
+		// update pitch/yaw
+		int mdx, mdy;
+		SDL_GetRelativeMouseState(&mdx, &mdy);
+		yaw += mdx * 0.25;
+		pitch += mdy * 0.25;
+		if (pitch > 89.0f) pitch = 89.0f;
+		if (pitch < -89.0f) pitch = -89.0f;
+
+		vec3 camera(0, 0, 0);
+		vec3 target = glm::normalize(vec3(
+			cos(glm::radians(pitch)) * cos(glm::radians(yaw)),
+			sin(glm::radians(pitch)),
+			cos(glm::radians(pitch)) * sin(glm::radians(yaw))
+		));
+		vec3 up(0, 1, 0);
+		mat4 view = glm::lookAt(camera, target, up);
+
+		// TODO: capture mouse input and rotate camera pitch/yaw
 
 		// set uniforms (projection and view matrices)
 		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uViewMat"), 1, GL_FALSE, glm::value_ptr(view));
@@ -169,11 +165,31 @@ int main() {
 			glGenerateMipmap(GL_TEXTURE_2D);
 		}
 		// draw call here
-		glBindVertexArray(VAO);
-		glDrawArrays(GL_TRIANGLES, 0, 6);
 
-		// unbind buffer between calls
-		glBindVertexArray(0);
+		// eye radius
+		glUniform1f(glGetUniformLocation(prog.Program, "uLensRadius"), 0.2099609);
+
+		// FRONT CAMERA
+
+		// scale and rotate model
+		glm::mat4 modelmat = glm::scale(glm::mat4(1.0f), glm::vec3(5.0));
+		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat));
+		// set UV coords
+		vec2 uvcenter(0.70947265, 0.22705078);
+		glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter));
+		// draw
+		hemisphere.Draw();
+
+		// REAR CAMERA
+		// rotate modelmat 180 deg
+		glm::mat4 modelmat2 = glm::rotate(glm::rotate(modelmat, 3.1415926536f, glm::vec3(0, 1, 0)), 3.1415926536f, glm::vec3(1, 0, 0));
+		glUniformMatrix4fv(glGetUniformLocation(prog.Program, "uModelMat"), 1, GL_FALSE, glm::value_ptr(modelmat2));
+		// update uv center
+		vec2 uvcenter2(0.2329101, 0.22705078);
+		glUniform2fv(glGetUniformLocation(prog.Program, "uUVOffset"), 1, glm::value_ptr(uvcenter2));
+		// draw again
+		hemisphere.Draw();
+
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_2D, 0);
 
